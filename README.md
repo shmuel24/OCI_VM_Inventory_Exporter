@@ -73,7 +73,7 @@ Your user or group must have access to:
 A basic example policy:
 
 ```
-Allow group MyGroup to inspect instance-resources in tenancy
+Allow group MyGroup to inspect instance-family in tenancy
 ```
 
 ---
