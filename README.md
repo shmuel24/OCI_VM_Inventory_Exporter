@@ -16,6 +16,9 @@ It exports two CSV files:
 * Clean CSV output
 * Detailed error logging to `error.log`
 * No resource modification — **read-only tool**
+* Optional: restrict to a specific region with `--region`
+* Optional: use a specific OCI profile with `--profile`
+* Optional: enable debug-level instance logging with `--verbose`
 
 ---
 
@@ -83,7 +86,7 @@ Allow group MyGroup to inspect instance-family in tenancy
 ### Step 1: Run the script
 
 ```bash
-python3 list_oci_vms_resource.py
+python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbose]
 ```
 
 ### Step 2: Review the output files
@@ -93,6 +96,12 @@ python3 list_oci_vms_resource.py
 | `all_vms.csv` | List of all non-terminated VMs across all regions             |
 | `summary.csv` | Aggregated summary by region and shape                        |
 | `error.log`   | Full stack traces for regions or resources with access issues |
+
+### Optional Flags
+
+* `--region eu-frankfurt-1` → Only scan this region
+* `--profile dev` → Use a custom profile from `~/.oci/config`
+* `--verbose` → Print every discovered VM in the terminal
 
 ---
 
@@ -125,9 +134,12 @@ python3 list_oci_vms_resource.py
 
 ```text
 .
-├── list_oci_vms_resource.py   # Main script
-├── requirements.txt                     # Required Python packages
-├── README.md                            # This file
+├── list_oci_vms_resource.py           # Main script
+├── requirements.txt                   # Required Python packages
+├── README.md                          # This file
+├── error.log                          # Populated on script run (if errors)
+├── all_vms.csv                        # Output - full list of VMs
+├── summary.csv                        # Output - region/shape summary
 ```
 
 ---
