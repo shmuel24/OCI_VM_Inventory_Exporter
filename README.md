@@ -83,7 +83,7 @@ Allow group MyGroup to inspect instance-resources in tenancy
 ### Step 1: Run the script
 
 ```bash
-python3 list_oci_vms_summary_search_csv.py
+python3 list_oci_vms_resource.py
 ```
 
 ### Step 2: Review the output files
@@ -125,7 +125,7 @@ python3 list_oci_vms_summary_search_csv.py
 
 ```text
 .
-├── list_oci_vms_summary_search_csv.py   # Main script
+├── list_oci_vms_resource.py   # Main script
 ├── requirements.txt                     # Required Python packages
 ├── README.md                            # This file
 ```
