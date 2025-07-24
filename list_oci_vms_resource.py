@@ -1,6 +1,7 @@
 import oci
 import csv
 import traceback
+import argparse
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -8,10 +9,7 @@ ALL_VMS_CSV = "all_vms.csv"
 SUMMARY_CSV = "summary.csv"
 ERROR_LOG = "error.log"
 
-def get_subscribed_regions(identity_client):
-    return [r.region_name for r in identity_client.list_region_subscriptions(tenancy_id).data]
-
-def list_vms_via_search(region, base_config, log_file):
+def list_vms_via_search(region, base_config, log_file, verbose=False):
     config = base_config.copy()
     config["region"] = region
     compute_client = oci.core.ComputeClient(config)
@@ -19,7 +17,7 @@ def list_vms_via_search(region, base_config, log_file):
 
     instances_info = []
     try:
-        print(f" [{region}] Searching for instances...")
+        print(f"[{region}] Searching for instances...")
         search_details = oci.resource_search.models.StructuredSearchDetails(
             query="query instance resources",
             type="Structured"
@@ -37,6 +35,10 @@ def list_vms_via_search(region, base_config, log_file):
                 shape = instance.shape
                 ocpus = instance.shape_config.ocpus if instance.shape_config else 0
                 memory = instance.shape_config.memory_in_gbs if instance.shape_config else 0
+
+                if verbose:
+                    print(f"[{region}] Found VM: {instance.display_name} | Shape: {shape} | OCPUs: {ocpus} | Memory: {memory} GB")
+
                 instances_info.append({
                     "region": region,
                     "compartment_id": instance.compartment_id,
@@ -63,7 +65,6 @@ def summarize(instances):
     return summary
 
 def export_csv(instances, summary_data):
-    # All VMs CSV
     headers = ["region", "compartment_id", "display_name", "shape", "ocpus", "memory", "availability_domain"]
     with open(ALL_VMS_CSV, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
@@ -71,7 +72,6 @@ def export_csv(instances, summary_data):
         for row in instances:
             writer.writerow(row)
 
-    # Summary CSV
     with open(SUMMARY_CSV, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["region", "shape", "count", "total_ocpus", "total_memory_gb"])
@@ -79,20 +79,28 @@ def export_csv(instances, summary_data):
             writer.writerow([region, shape, data["count"], data["ocpus"], data["memory"]])
 
 if __name__ == "__main__":
-    config = oci.config.from_file()
-    tenancy_id = config["tenancy"]
+    parser = argparse.ArgumentParser(description="OCI VM Inventory Exporter")
+    parser.add_argument("--region", help="Optional: scan only this region")
+    parser.add_argument("--profile", default="DEFAULT", help="OCI CLI profile name (default: DEFAULT)")
+    parser.add_argument("--verbose", action="store_true", help="Print each discovered VM to the screen")
+    args = parser.parse_args()
 
-    print("Authenticating...")
+    config = oci.config.from_file(profile_name=args.profile)
+    tenancy_id = config["tenancy"]
     identity_client = oci.identity.IdentityClient(config)
 
-    print("Fetching subscribed regions...")
-    regions = get_subscribed_regions(identity_client)
+    if args.region:
+        regions = [args.region]
+        print(f"Scanning single region: {args.region}")
+    else:
+        print("Fetching all subscribed regions...")
+        regions = [r.region_name for r in identity_client.list_region_subscriptions(tenancy_id).data]
 
     all_instances = []
-    print(f"Launching parallel resource search across {len(regions)} regions...\n")
+    print(f"Starting scan across {len(regions)} region(s)...\n")
     with ThreadPoolExecutor(max_workers=8) as executor, open(ERROR_LOG, "w") as log_file:
         futures = {
-            executor.submit(list_vms_via_search, region, config, log_file): region
+            executor.submit(list_vms_via_search, region, config, log_file, args.verbose): region
             for region in regions
         }
         for future in as_completed(futures):
@@ -107,7 +115,7 @@ if __name__ == "__main__":
     print("\n Creating summary...")
     summary = summarize(all_instances)
 
-    print(f"Exporting CSVs to: {ALL_VMS_CSV}, {SUMMARY_CSV}")
+    print(f"Exporting to {ALL_VMS_CSV} and {SUMMARY_CSV}...")
     export_csv(all_instances, summary)
 
     print(f"\n Done. {len(all_instances)} VMs exported.")
