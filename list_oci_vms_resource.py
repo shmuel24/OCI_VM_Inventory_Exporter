@@ -9,50 +9,57 @@ ALL_VMS_CSV = "all_vms.csv"
 SUMMARY_CSV = "summary.csv"
 ERROR_LOG = "error.log"
 
-def list_vms_via_search(region, base_config, log_file, verbose=False):
+def list_all_compartments(identity_client, tenancy_id):
+    compartments = oci.pagination.list_call_get_all_results(
+        identity_client.list_compartments,
+        compartment_id=tenancy_id,
+        compartment_id_in_subtree=True,
+        access_level="ANY"
+    ).data
+    active_comps = [c for c in compartments if c.lifecycle_state == "ACTIVE"]
+    active_comps.append(oci.identity.models.Compartment(id=tenancy_id, name="root"))
+    return active_comps
+
+def list_vms_in_region(region, base_config, compartments, log_file, verbose=False):
     config = base_config.copy()
     config["region"] = region
     compute_client = oci.core.ComputeClient(config)
-    search_client = oci.resource_search.ResourceSearchClient(config)
 
     instances_info = []
-    try:
-        print(f"[{region}] Searching for instances...")
-        search_details = oci.resource_search.models.StructuredSearchDetails(
-            query="query instance resources",
-            type="Structured"
-        )
-        results = search_client.search_resources(search_details).data.items
-    except Exception:
-        log_file.write(f"[{region}] Resource search failed:\n{traceback.format_exc()}\n")
-        print(f"Error in region {region} (Resource Search failed)")
-        return []
 
-    for item in results:
+    print(f"🔍 [{region}] Scanning {len(compartments)} compartments...")
+    for comp in compartments:
         try:
-            instance = compute_client.get_instance(item.identifier).data
+            instances = oci.pagination.list_call_get_all_results(
+                compute_client.list_instances,
+                compartment_id=comp.id
+            ).data
+        except Exception:
+            log_file.write(f"[{region}] Compartment {comp.name} ({comp.id}) failed:\n{traceback.format_exc()}\n")
+            print(f"rror in compartment {comp.name} ({region})")
+            continue
+
+        for instance in instances:
             if instance.lifecycle_state != "TERMINATED":
                 shape = instance.shape
                 ocpus = instance.shape_config.ocpus if instance.shape_config else 0
                 memory = instance.shape_config.memory_in_gbs if instance.shape_config else 0
 
                 if verbose:
-                    print(f"[{region}] Found VM: {instance.display_name} | Shape: {shape} | OCPUs: {ocpus} | Memory: {memory} GB")
+                    print(f"[{region}] {comp.name} → {instance.display_name} | {shape} | {ocpus} OCPU | {memory} GB")
 
                 instances_info.append({
                     "region": region,
-                    "compartment_id": instance.compartment_id,
+                    "compartment_id": comp.id,
+                    "compartment_name": comp.name,
                     "display_name": instance.display_name,
                     "shape": shape,
                     "ocpus": ocpus,
                     "memory": memory,
                     "availability_domain": instance.availability_domain
                 })
-        except Exception:
-            log_file.write(f"[{region}] Failed to get instance details for OCID: {item.identifier}\n{traceback.format_exc()}\n")
-            print(f"Error retrieving instance in {region}")
 
-    print(f"Finished region: {region} ({len(instances_info)} instances)")
+    print(f"Finished region: {region} ({len(instances_info)} VMs)")
     return instances_info
 
 def summarize(instances):
@@ -65,7 +72,10 @@ def summarize(instances):
     return summary
 
 def export_csv(instances, summary_data):
-    headers = ["region", "compartment_id", "display_name", "shape", "ocpus", "memory", "availability_domain"]
+    headers = [
+        "region", "compartment_id", "compartment_name", "display_name",
+        "shape", "ocpus", "memory", "availability_domain"
+    ]
     with open(ALL_VMS_CSV, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
@@ -79,15 +89,32 @@ def export_csv(instances, summary_data):
             writer.writerow([region, shape, data["count"], data["ocpus"], data["memory"]])
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OCI VM Inventory Exporter")
-    parser.add_argument("--region", help="Optional: scan only this region")
-    parser.add_argument("--profile", default="DEFAULT", help="OCI CLI profile name (default: DEFAULT)")
+    parser = argparse.ArgumentParser(
+        description="Accurate OCI VM Inventory Exporter using list_instances()",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("--region", help="Only scan this region (optional)")
+    parser.add_argument("--profile", default="DEFAULT", help="OCI CLI profile to use (default: DEFAULT)")
+    parser.add_argument("--compartment-id", help="Scan only a specific compartment OCID (optional)")
     parser.add_argument("--verbose", action="store_true", help="Print each discovered VM to the screen")
     args = parser.parse_args()
 
     config = oci.config.from_file(profile_name=args.profile)
     tenancy_id = config["tenancy"]
     identity_client = oci.identity.IdentityClient(config)
+
+    print("Fetching compartments from home region...")
+    all_compartments = list_all_compartments(identity_client, tenancy_id)
+
+    if args.compartment_id:
+        filtered = [c for c in all_compartments if c.id == args.compartment_id]
+        if not filtered:
+            print(f"Compartment ID not found or not accessible: {args.compartment_id}")
+            exit(1)
+        compartments = filtered
+        print(f"Scanning only compartment: {filtered[0].name} ({filtered[0].id})")
+    else:
+        compartments = all_compartments
 
     if args.region:
         regions = [args.region]
@@ -100,7 +127,7 @@ if __name__ == "__main__":
     print(f"Starting scan across {len(regions)} region(s)...\n")
     with ThreadPoolExecutor(max_workers=8) as executor, open(ERROR_LOG, "w") as log_file:
         futures = {
-            executor.submit(list_vms_via_search, region, config, log_file, args.verbose): region
+            executor.submit(list_vms_in_region, region, config, compartments, log_file, args.verbose): region
             for region in regions
         }
         for future in as_completed(futures):
