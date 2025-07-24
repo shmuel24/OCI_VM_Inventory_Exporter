@@ -1,4 +1,4 @@
-# OCI VM Inventory CSV Exporter
+# OCI VM Inventory Exporter
 
 This is a lightweight and fast Python script that scans all **running Compute instances** (VMs) across **all subscribed regions** in your Oracle Cloud Infrastructure (OCI) tenancy.
 
