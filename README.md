@@ -137,9 +137,6 @@ python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbos
 ├── list_oci_vms_resource.py           # Main script
 ├── requirements.txt                   # Required Python packages
 ├── README.md                          # This file
-├── error.log                          # Populated on script run (if errors)
-├── all_vms.csv                        # Output - full list of VMs
-├── summary.csv                        # Output - region/shape summary
 ```
 
 ---
