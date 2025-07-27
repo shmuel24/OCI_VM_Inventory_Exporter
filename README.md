@@ -1,23 +1,25 @@
 # OCI VM Inventory Exporter
 
-This is a lightweight and fast Python script that scans all **running Compute instances** (VMs) across **all subscribed regions** in your Oracle Cloud Infrastructure (OCI) tenancy.
+This is a Python script that scans all **running Compute instances** (VMs) across **all compartments and subscribed regions** in your Oracle Cloud Infrastructure (OCI) tenancy using the `list_instances()` method for full accuracy.
 
 It exports two CSV files:
 
-* `all_vms.csv`: Full list of all VM instances with OCPU and memory details
+* `all_vms.csv`: Full list of all VM instances with OCPU, memory, and compartment details
 * `summary.csv`: Aggregated OCPU and memory usage grouped by region and shape
 
 ---
 
 ## ✨ Features
 
-* Cross-region scan using `resource_search`
-* Parallel processing for faster results
-* Clean CSV output
+* Accurate VM discovery using `list_instances()` per compartment
+* Scans all compartments (not relying on resource search)
+* Parallel processing per region for fast execution
+* Clean CSV output with `compartment_name` included
 * Detailed error logging to `error.log`
 * No resource modification — **read-only tool**
 * Optional: restrict to a specific region with `--region`
 * Optional: use a specific OCI profile with `--profile`
+* Optional: scan only one compartment using `--compartment-id`
 * Optional: enable debug-level instance logging with `--verbose`
 
 ---
@@ -69,14 +71,14 @@ This will create the file:
 
 Your user or group must have access to:
 
-* `RESOURCE_INSPECT` on `instance` resources
-* `inspect` permission for `resource-search`
-* `read` on compartments (if using restricted policies)
+* `inspect` on `instance-family` and `compartments`
+* `read` on compartments
 
 A basic example policy:
 
 ```
 Allow group MyGroup to inspect instance-family in tenancy
+Allow group MyGroup to inspect compartments in tenancy
 ```
 
 ---
@@ -86,22 +88,23 @@ Allow group MyGroup to inspect instance-family in tenancy
 ### Step 1: Run the script
 
 ```bash
-python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbose]
+python3 list_oci_vms_summary_compartments.py [--region REGION] [--profile PROFILE] [--compartment-id OCID] [--verbose]
 ```
 
 ### Step 2: Review the output files
 
-| File          | Description                                                   |
-| ------------- | ------------------------------------------------------------- |
-| `all_vms.csv` | List of all non-terminated VMs across all regions             |
-| `summary.csv` | Aggregated summary by region and shape                        |
-| `error.log`   | Full stack traces for regions or resources with access issues |
+| File          | Description                                                 |
+| ------------- | ----------------------------------------------------------- |
+| `all_vms.csv` | Full list of all non-terminated VMs with compartment info   |
+| `summary.csv` | Aggregated summary by region and shape                      |
+| `error.log`   | Full stack traces for compartments or regions with failures |
 
 ### Optional Flags
 
 * `--region eu-frankfurt-1` → Only scan this region
 * `--profile dev` → Use a custom profile from `~/.oci/config`
-* `--verbose` → Print every discovered VM in the terminal
+* `--compartment-id ocid1.compartment.oc1...` → Only scan one compartment
+* `--verbose` → Print every discovered VM to the terminal
 
 ---
 
@@ -109,10 +112,10 @@ python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbos
 
 ### `all_vms.csv`
 
-| region         | compartment\_id          | display\_name | shape               | ocpus | memory | availability\_domain |
-| -------------- | ------------------------ | ------------- | ------------------- | ----- | ------ | -------------------- |
-| eu-frankfurt-1 | ocid1.compartment.oc1... | web-01        | VM.Standard.E4.Flex | 2     | 16     | EU-FRANKFURT-1-AD-1  |
-| eu-frankfurt-1 | ocid1.compartment.oc1... | db-02         | VM.Standard.E4.Flex | 4     | 32     | EU-FRANKFURT-1-AD-2  |
+| region         | compartment\_id          | compartment\_name | display\_name | shape               | ocpus | memory | availability\_domain |
+| -------------- | ------------------------ | ----------------- | ------------- | ------------------- | ----- | ------ | -------------------- |
+| eu-frankfurt-1 | ocid1.compartment.oc1... | DevCompartment    | web-01        | VM.Standard.E4.Flex | 2     | 16     | EU-FRANKFURT-1-AD-1  |
+| eu-frankfurt-1 | ocid1.compartment.oc1... | DevCompartment    | db-02         | VM.Standard.E4.Flex | 4     | 32     | EU-FRANKFURT-1-AD-2  |
 
 ### `summary.csv`
 
@@ -126,7 +129,8 @@ python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbos
 
 * Only **running or starting instances** are included
 * Terminated VMs are automatically excluded
-* Skips regions with access errors and logs them to `error.log`
+* All compartments are queried unless `--compartment-id` is used
+* Errors are logged in `error.log` with full traceback
 
 ---
 
@@ -134,9 +138,9 @@ python3 list_oci_vms_resource.py [--region REGION] [--profile PROFILE] [--verbos
 
 ```text
 .
-├── list_oci_vms_resource.py           # Main script
-├── requirements.txt                   # Required Python packages
-├── README.md                          # This file
+├── list_oci_vms_summary_compartments.py  # Main script
+├── requirements.txt                      # Required Python packages
+├── README.md                             # This file
 ```
 
 ---
